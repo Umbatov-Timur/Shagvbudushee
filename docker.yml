@@ -1,0 +1,71 @@
+---
+- name: Install Docker and Docker Compose using community.docker
+  hosts: ycloud
+  become: true
+  tasks:
+  - name: Install required system packages
+    ansible.builtin.package:
+      name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+      - pipx
+      state: present
+
+  - name: Install Ansible with pipx
+    ansible.builtin.shell: |
+      python3 -m pipx ensurepath
+      pipx install ansible
+
+  - name: Install Docker SDK for Python into Ansible environment using pipx
+    ansible.builtin.shell: |
+      pipx inject ansible docker
+
+  - name: Add Docker GPG key
+    ansible.builtin.apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+
+  - name: Add Docker repository
+    ansible.builtin.apt_repository:
+      repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+      state: present
+
+  - name: Install Docker packages
+    ansible.builtin.package:
+      name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      state: present
+      update_cache: true
+
+  - name: Ensure Docker service is started and enabled
+    ansible.builtin.service:
+      name: docker
+      state: started
+      enabled: true
+
+  - name: Download latest Docker Compose
+    ansible.builtin.get_url:
+      url: "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64"
+      dest: "/usr/local/bin/docker-compose"
+      mode: '0755'
+
+  - name: Verify Docker installation
+    community.docker.docker_host_info:
+    register: docker_info
+
+  - name: Print Docker info
+    ansible.builtin.debug:
+      var: docker_info
+
+  - name: Verify Docker Compose installation
+    ansible.builtin.command: docker-compose --version
+    register: compose_version
+    changed_when: false
+
+  - name: Print Docker Compose version
+    ansible.builtin.debug:
+      var: compose_version.stdout

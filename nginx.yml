@@ -1,0 +1,29 @@
+- name: Install Nginx
+  hosts: ycloud
+  become: true
+  tasks:
+  - name: Update apt cache
+    ansible.builtin.apt:
+      update_cache: true
+
+  - name: Install Nginx
+    ansible.builtin.apt:
+      name: nginx
+      state: present
+
+  - name: Start Nginx service
+    ansible.builtin.service:
+      name: nginx
+      state: started
+      enabled: true
+
+  - name: Copy immich nginx config
+    ansible.builtin.copy:
+      src: immich_nginx.conf
+      dest: /etc/nginx/conf.d/immich.conf
+
+  - name: Restart Nginx to apply new configuration
+    ansible.builtin.service:
+      name: nginx
+      state: restarted
+

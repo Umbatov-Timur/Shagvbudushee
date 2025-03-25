@@ -1,0 +1,77 @@
+- name: Install Immich
+  hosts: ycloud
+  become: true
+  tasks:
+  - name: Create directory for Immich
+    ansible.builtin.file:
+      path: /opt/immich
+      state: directory
+
+  - name: Create a 5GB file for the encrypted container
+    ansible.builtin.command: fallocate -l 5G /opt/immich/immich_encrypted.img
+    args:
+      creates: /opt/immich/immich_encrypted.img
+
+  - name: Check if LUKS is already set up
+    ansible.builtin.command: cryptsetup isLuks /opt/immich/immich_encrypted.img
+    register: luks_check
+    ignore_errors: true
+    changed_when: false
+
+  - name: Generate a keyfile
+    ansible.builtin.command: dd if=/dev/random of=/root/luks-keyfile bs=1024 count=4
+    args:
+      creates: /root/luks-keyfile
+    when: luks_check.rc != 0
+
+  - name: Secure the keyfile
+    ansible.builtin.file:
+      path: /root/luks-keyfile
+      mode: '0400'
+    when: luks_check.rc != 0
+
+  - name: Format the file as a LUKS volume using the keyfile
+    ansible.builtin.command: cryptsetup luksFormat --key-file /root/luks-keyfile --batch-mode /opt/immich/immich_encrypted.img
+    when: luks_check.rc != 0
+
+  - name: Open the LUKS container using the keyfile
+    ansible.builtin.command: cryptsetup luksOpen /opt/immich/immich_encrypted.img immich_storage --key-file /root/luks-keyfile
+    args:
+      creates: /dev/mapper/immich_storage
+
+  - name: Check if the encrypted volume is already formatted
+    ansible.builtin.command: blkid /dev/mapper/immich_storage
+    register: blkid_check
+    ignore_errors: true
+    changed_when: false
+
+  - name: Format the encrypted container as ext4
+    ansible.builtin.command: mkfs.ext4 /dev/mapper/immich_storage
+    when: blkid_check.rc != 0
+
+  - name: Create directory for Immich data
+    ansible.builtin.file:
+      path: /mnt/immich
+      state: directory
+
+  - name: Mount directory for Immich data
+    ansible.builtin.mount:
+      path: /mnt/immich
+      src: /dev/mapper/immich_storage
+      fstype: ext4
+      state: mounted
+
+  - name: Download Immich Docker Compose file
+    ansible.builtin.get_url:
+      url: https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
+      dest: /mnt/immich/docker-compose.yml
+
+  - name: Copy Immich .env file
+    ansible.builtin.copy:
+      src: immich.env
+      dest: /mnt/immich/.env
+
+  - name: Start Immich using Docker Compose
+    community.docker.docker_compose_v2:
+      project_src: /mnt/immich
+      state: present
